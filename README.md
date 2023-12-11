@@ -7,7 +7,7 @@ GCN-Align: <https://aclanthology.org/D18-1032.pdf>
 
 ## Install Requirements
 
-(Some of the code cannot be found if you have modified your pip source)
+(Some of the packages cannot be found if you have modified your pip source)
 
 ```bash
 pip install -r requirements.txt -i https://pypi.org/simple
