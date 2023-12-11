@@ -5,6 +5,7 @@ numpy-base
 pandas
 pytorch                  
 pytorch-mutex
+EA-Toolkit
 scikit-learn             
 scipy
 tabulate                 
