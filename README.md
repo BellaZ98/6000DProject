@@ -72,7 +72,7 @@ The line that should to be modified during experiments:\
 
 ## Reference
 
-This project was developed inspired by these following projects:
+This project was developed inspired by these following projects and papers:
 
 - [EA-for-KG](https://github.com/ruizhang-ai/EA_for_KG)
 - [EAkit](https://github.com/THU-KEG/EAkit)
