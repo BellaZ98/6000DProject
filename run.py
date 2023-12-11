@@ -403,7 +403,7 @@ def update_config_from_json(args, config_file):
 if __name__ == '__main__':
 
     args = parse_arguments()
-    config_file = 'training_configuration/GCN-Align.json'
+    config_file = 'experiment_configuration/GCN-Align_zh_en.json'
     args = update_config_from_json(args, config_file)
 
 
