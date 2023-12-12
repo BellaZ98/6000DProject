@@ -11,6 +11,9 @@ import json
 
 
 class Experiment:
+    """
+    Experiment class for training and evaluating.
+    """
     def __init__(self, args):
         self.save = args.save
         self.save_prefix = "%s_%s" % (args.data_dir.split("/")[-1], args.log)
@@ -35,6 +38,16 @@ class Experiment:
         self.best_result = ()
 
     def evaluate(self, it, test, ins_emb, mapping_emb=None):
+        """
+        Evaluate the model on test set.
+        Args:
+            it: number of iteration
+            test: test set
+            ins_emb: instance embeddings
+            mapping_emb: mapping instance embeddings
+        Returns:
+
+        """
         t_test = time.time()
         top_k = [1, 3, 5, 10]
         if mapping_emb is not None:
@@ -44,6 +57,8 @@ class Experiment:
             left_emb = ins_emb[test[:, 0]]
         right_emb = ins_emb[test[:, 1]]
 
+
+        #calculate the distance between left_emb and right_emb
         distance = - sim(left_emb, right_emb, metric=self.args.test_dist, normalize=True, csls_k=self.args.csls)
         if self.args.rerank:
             indices = np.argsort(np.argsort(distance, axis=1), axis=1)
@@ -59,6 +74,7 @@ class Experiment:
         pool.close()
         pool.join()
 
+        # calculate the accuracy
         acc_l2r, acc_r2l = np.array([0.] * len(top_k)), np.array([0.] * len(top_k))
         mean_l2r, mean_r2l, mrr_l2r, mrr_r2l = 0., 0., 0., 0.
         for res in reses:
@@ -85,6 +101,8 @@ class Experiment:
             "r2l: acc of top {} = {}, mr = {:.3f}, mrr = {:.3f}, time = {:.4f} s \n".format(top_k, acc_r2l.tolist(),
                                                                                             mean_r2l, mrr_r2l,
                                                                                             time.time() - t_test))
+
+        # write the result to tensorboard
         for i, k in enumerate(top_k):
             writer.add_scalar("l2r_HitsAt{}".format(k), acc_l2r[i], it)
             writer.add_scalar("r2l_HitsAt{}".format(k), acc_r2l[i], it)
@@ -92,42 +110,54 @@ class Experiment:
         writer.add_scalar("l2r_MeanReciprocalRank", mrr_l2r, it)
         writer.add_scalar("r2l_MeanRank", mean_r2l, it)
         writer.add_scalar("r2l_MeanReciprocalRank", mrr_r2l, it)
-        return (acc_l2r, mean_l2r, mrr_l2r, acc_r2l, mean_r2l, mrr_r2l)
+        return acc_l2r, mean_l2r, mrr_l2r, acc_r2l, mean_r2l, mrr_r2l
 
     def init_emb(self):
         e_scale, r_scale = 1, 1
+
+        # Assuming self.args.decoder is a list; extracting the first element as decoder type
+        decoder_type = self.args.decoder[0] if self.args.decoder else None
+
+        # Adjusting relation scale based on the decoder type
         if not self.args.encoder:
-            if self.args.decoder == ["rotate"]:
-                r_scale = r_scale / 2
-            elif self.args.decoder == ["hake"]:
-                r_scale = (r_scale / 2) * 3
-            elif self.args.decoder == ["transh"]:
-                r_scale = r_scale * 2
-            elif self.args.decoder == ["transr"]:
+            if decoder_type == "rotate":
+                r_scale /= 2
+            elif decoder_type == "hake":
+                r_scale = r_scale / 2 * 3
+            elif decoder_type == "transh":
+                r_scale *= 2
+            elif decoder_type == "transr":
                 r_scale = self.hiddens[0] + 1
+
+        # Initialize embeddings for instances and relations
         self.ins_embeddings = nn.Embedding(d.ins_num, self.hiddens[0] * e_scale).to(device)
         self.rel_embeddings = nn.Embedding(d.rel_num, int(self.hiddens[0] * r_scale)).to(device)
-        if self.args.decoder == ["rotate"] or self.args.decoder == ["hake"]:
-            ins_range = (self.args.margin[0] + 2.0) / float(self.hiddens[0] * e_scale)
-            nn.init.uniform_(tensor=self.ins_embeddings.weight, a=-ins_range, b=ins_range)
-            rel_range = (self.args.margin[0] + 2.0) / float(self.hiddens[0] * r_scale)
-            nn.init.uniform_(tensor=self.rel_embeddings.weight, a=-rel_range, b=rel_range)
-            if self.args.decoder == ["hake"]:
+
+        # Initialize weights based on decoder type
+        if decoder_type in ["rotate", "hake"]:
+            ins_range = (self.args.margin[0] + 2.0) / (self.hiddens[0] * e_scale)
+            rel_range = (self.args.margin[0] + 2.0) / (self.hiddens[0] * r_scale)
+            nn.init.uniform_(self.ins_embeddings.weight, a=-ins_range, b=ins_range)
+            nn.init.uniform_(self.rel_embeddings.weight, a=-rel_range, b=rel_range)
+            if decoder_type == "hake":
                 r_dim = int(self.hiddens[0] / 2)
-                nn.init.ones_(tensor=self.rel_embeddings.weight[:, r_dim: 2 * r_dim])
-                nn.init.zeros_(tensor=self.rel_embeddings.weight[:, 2 * r_dim: 3 * r_dim])
+                nn.init.ones_(self.rel_embeddings.weight[:, r_dim: 2 * r_dim])
+                nn.init.zeros_(self.rel_embeddings.weight[:, 2 * r_dim: 3 * r_dim])
         else:
             nn.init.xavier_normal_(self.ins_embeddings.weight)
             nn.init.xavier_normal_(self.rel_embeddings.weight)
-        if "alignea" in self.args.decoder or "mtranse_align" in self.args.decoder or "transedge" in self.args.decoder:
-            self.ins_embeddings.weight.data = F.normalize(self.ins_embeddings.weight, p=2, dim=1)
-            self.rel_embeddings.weight.data = F.normalize(self.rel_embeddings.weight, p=2, dim=1)
-        elif "transr" in self.args.decoder:
+
+        # Normalize weights for certain decoders
+        if decoder_type in ["alignea", "mtranse_align", "transedge"]:
+            F.normalize(self.ins_embeddings.weight, p=2, dim=1, out=self.ins_embeddings.weight)
+            F.normalize(self.rel_embeddings.weight, p=2, dim=1, out=self.rel_embeddings.weight)
+        elif decoder_type == "transr":
             assert self.args.pre != ""
-            self.ins_embeddings.weight.data = torch.from_numpy(np.load(self.args.pre + "_ins.npy")).to(device)
-            self.rel_embeddings.weight[:, :self.hiddens[0]].data = torch.from_numpy(
-                np.load(self.args.pre + "_rel.npy")).to(device)
-        self.enh_ins_emb = self.ins_embeddings.weight.cpu().detach().numpy()
+            self.ins_embeddings.weight.data.copy_(torch.from_numpy(np.load(self.args.pre + "_ins.npy")).to(device))
+            self.rel_embeddings.weight[:, :self.hiddens[0]].data.copy_(
+                torch.from_numpy(np.load(self.args.pre + "_rel.npy")).to(device))
+
+        self.enh_ins_emb = self.ins_embeddings.weight.detach().cpu().numpy()
         self.mapping_ins_emb = None
 
     def train_and_eval(self):
